@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 import uuid
@@ -6,7 +7,14 @@ from .chunking import chunk_facts
 from .config import Settings
 from .embeddings import EmbeddingResult
 from .guardrails import validate_grounding
-from .models import FactChunk, IngestResponse, QueryRequest, QueryResponse, SourceCitation
+from .models import (
+    FactChunk,
+    IngestResponse,
+    QueryRequest,
+    QueryResponse,
+    ScoredChunk,
+    SourceCitation,
+)
 from .ports import BrainSource, Embedder, Generator, VectorStore
 from .retrieval import rerank
 
@@ -52,10 +60,11 @@ class RagService:
         if len(request.question) > self.settings.max_query_chars:
             raise ValueError("Question exceeds the configured character limit")
         started = time.perf_counter()
-        embedding, contexts = await self.retrieve(request)
+        request_id = str(uuid.uuid4())
+        embedding, contexts, retrieval_stats = await self._retrieve(request, request_id)
         if not contexts:
             raise ValueError("No grounded facts found for this query")
-        generation_contexts = contexts[:1]
+        generation_contexts = contexts[: self.settings.rag_generation_contexts]
         generation = await self.generator.generate(
             request.question,
             generation_contexts,
@@ -76,7 +85,6 @@ class RagService:
             )
             for fact_id in payload.citations
         ]
-        request_id = str(uuid.uuid4())
         response = QueryResponse(
             answer=payload.answer,
             citations=citations,
@@ -85,6 +93,15 @@ class RagService:
             latency_ms=(time.perf_counter() - started) * 1000,
             estimated_cost_usd=total_cost,
             request_id=request_id,
+        )
+        logger.info(
+            "query_breakdown request_id=%s embedding_ms=%.2f retrieval_ms=%.2f "
+            "generation_ms=%.2f non_model_ms=%.2f",
+            request_id,
+            retrieval_stats["embedding_ms"],
+            retrieval_stats["retrieval_ms"],
+            generation.latency_ms,
+            max(0.0, response.latency_ms - generation.latency_ms),
         )
         logger.info(
             "query_complete request_id=%s model=%s retrieved_count=%d latency_ms=%.2f "
@@ -98,16 +115,63 @@ class RagService:
         return response
 
     async def retrieve(self, request: QueryRequest) -> tuple[EmbeddingResult, list[FactChunk]]:
-        embedding = await self.embedder.embed([request.question], task_type="RETRIEVAL_QUERY")
-        candidates = await self.store.search(
-            embedding.vectors[0],
-            request.question,
-            top_k=min(20, request.top_k * self.settings.rag_candidate_multiplier),
-            entity=request.entity,
-            section=request.section,
-        )
+        embedding, contexts, _ = await self._retrieve(request, None)
+        return embedding, contexts
+
+    async def _retrieve(
+        self, request: QueryRequest, request_id: str | None
+    ) -> tuple[EmbeddingResult, list[FactChunk], dict[str, float]]:
+        started = time.perf_counter()
+
+        async def embed_query() -> tuple[EmbeddingResult, float]:
+            phase_started = time.perf_counter()
+            result = await self.embedder.embed(
+                [request.question], task_type="RETRIEVAL_QUERY"
+            )
+            return result, (time.perf_counter() - phase_started) * 1000
+
+        async def retrieve_text() -> tuple[list[ScoredChunk], float]:
+            phase_started = time.perf_counter()
+            result = await self.store.search(
+                [],
+                request.question,
+                top_k=min(20, request.top_k * self.settings.rag_candidate_multiplier),
+                entity=request.entity,
+                section=request.section,
+            )
+            return result, (time.perf_counter() - phase_started) * 1000
+
+        if getattr(self.store, "supports_text_retrieval", False):
+            (embedding, embedding_ms), (candidates, retrieval_ms) = await asyncio.gather(
+                embed_query(), retrieve_text()
+            )
+        else:
+            embedding, embedding_ms = await embed_query()
+            retrieval_started = time.perf_counter()
+            candidates = await self.store.search(
+                embedding.vectors[0],
+                request.question,
+                top_k=min(20, request.top_k * self.settings.rag_candidate_multiplier),
+                entity=request.entity,
+                section=request.section,
+            )
+            retrieval_ms = (time.perf_counter() - retrieval_started) * 1000
         ranked = rerank(
             candidates, entity=request.entity, section=request.section, top_k=request.top_k
         )
         contexts = [item.chunk for item in ranked]
-        return embedding, contexts
+        stats: dict[str, float] = {
+            "embedding_ms": embedding_ms,
+            "retrieval_ms": retrieval_ms,
+            "total_ms": (time.perf_counter() - started) * 1000,
+        }
+        if request_id:
+            logger.info(
+                "retrieval_breakdown request_id=%s embedding_ms=%.2f retrieval_ms=%.2f "
+                "contexts=%d",
+                request_id,
+                stats["embedding_ms"],
+                stats["retrieval_ms"],
+                len(contexts),
+            )
+        return embedding, contexts, stats

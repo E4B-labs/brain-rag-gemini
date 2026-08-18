@@ -52,7 +52,7 @@ if ($LASTEXITCODE -ne 0) {
 gcloud secrets add-iam-policy-binding tasktree-database-url --member="serviceAccount:$runtimeSa" --role="roles/secretmanager.secretAccessor"
 
 gcloud builds submit --tag $image
-$runtimeVars = "GOOGLE_CLOUD_PROJECT=$ProjectId,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=True,VECTOR_STORE_BACKEND=$VectorBackend"
+$runtimeVars = "GOOGLE_CLOUD_PROJECT=$ProjectId,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=True,VECTOR_STORE_BACKEND=$VectorBackend,ENABLE_CONTEXT_CACHE=False,MAX_OUTPUT_TOKENS=300,THINKING_LEVEL=MINIMAL,RAG_GENERATION_CONTEXTS=2"
 if ($VectorBackend -eq "rag") {
   $runtimeVars += ",RAG_CORPUS_NAME=$RagCorpusName,RAG_LOCATION=$RagLocation"
   if ($RagStagingBucket) {

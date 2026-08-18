@@ -40,8 +40,12 @@ class Settings(BaseSettings):
     )
     fallback_model: str = Field(default="gemini-3.1-pro-preview", validation_alias="FALLBACK_MODEL")
     judge_model: str = Field(default="gemini-3.1-flash-lite", validation_alias="JUDGE_MODEL")
-    enable_context_cache: bool = Field(default=True, validation_alias="ENABLE_CONTEXT_CACHE")
-    max_output_tokens: int = Field(default=800, validation_alias="MAX_OUTPUT_TOKENS")
+    enable_context_cache: bool = Field(default=False, validation_alias="ENABLE_CONTEXT_CACHE")
+    max_output_tokens: int = Field(default=300, validation_alias="MAX_OUTPUT_TOKENS")
+    thinking_level: str = Field(default="MINIMAL", validation_alias="THINKING_LEVEL")
+    rag_generation_contexts: int = Field(
+        default=2, validation_alias="RAG_GENERATION_CONTEXTS"
+    )
     max_query_cost_usd: float = Field(default=0.05, validation_alias="MAX_QUERY_COST_USD")
     rag_min_similarity: float = Field(default=0.55, validation_alias="RAG_MIN_SIMILARITY")
     rag_candidate_multiplier: int = Field(
@@ -56,6 +60,10 @@ class Settings(BaseSettings):
             raise ValueError("EMBEDDING_DIMENSION must be positive")
         if self.max_output_tokens <= 0:
             raise ValueError("MAX_OUTPUT_TOKENS must be positive")
+        if self.thinking_level.upper() not in {"MINIMAL", "LOW", "MEDIUM", "HIGH"}:
+            raise ValueError("THINKING_LEVEL must be MINIMAL, LOW, MEDIUM, or HIGH")
+        if self.rag_generation_contexts <= 0:
+            raise ValueError("RAG_GENERATION_CONTEXTS must be positive")
         if self.max_query_cost_usd <= 0:
             raise ValueError("MAX_QUERY_COST_USD must be positive")
         if not 0 <= self.rag_min_similarity < 1:

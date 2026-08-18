@@ -335,6 +335,7 @@ class RagEngineStore:
         self._staging_bucket = staging_bucket
         self._min_similarity = min_similarity
         self._chunks: dict[str, FactChunk] = {}
+        self.supports_text_retrieval = True
 
     async def upsert(self, chunks: Sequence[FactChunk], vectors: Sequence[Sequence[float]]) -> int:
         del vectors

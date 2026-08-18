@@ -34,7 +34,7 @@ The authenticated Cloud Run deployment is available at
 [`https://brain-rag-gemini-36849787065.europe-west1.run.app`](https://brain-rag-gemini-36849787065.europe-west1.run.app).
 It runs with `min-instances=0`, uses the `brain-rag-runtime` service account,
 and requires `roles/run.invoker`; it is intentionally not public because it
-reads real Brain memory. Deployed revision: `brain-rag-gemini-00008-g4v`.
+reads real Brain memory. Deployed revision: `brain-rag-gemini-00009-jtf`.
 
 For local development, the same ports are backed by deterministic hash
 embeddings and SQLite. This makes tests and `docker compose up` independent of
@@ -126,6 +126,9 @@ in groups of 25 and awaited sequentially because a managed corpus permits only
 one active import operation at a time. Retrieval reports the full reranked top-k,
 while generation receives the best context first; malformed structured output
 retries without cache and then falls back to a grounded low-confidence payload.
+For Gemini 3 Flash, `THINKING_LEVEL=MINIMAL` is used for this low-complexity QA
+path and `MAX_OUTPUT_TOKENS=300`; the embedding request and text retrieval run
+concurrently for the RAG Engine backend.
 
 ### Corpus verification
 
@@ -135,6 +138,37 @@ facts and 1,394 chunks. The managed RAG Engine corpus contained 1,988 historical
 the current Brain corpus: **1,394 / 1,394 = 100.00% coverage**. The missing 226
 chunks found during the check were re-embedded with `gemini-embedding-001` and
 imported successfully. No Vector Search endpoint was created.
+
+### Latency optimization
+
+The baseline was measured on ten real Brain questions before the optimization.
+The post-change run used the same questions, `top_k=8`, and `min-instances=0`.
+
+| run | API p50 | wall p50 | mean cost | recall@8 | faithfulness |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| before, `europe-west1` | 22.16 s | 22.27 s | $0.00049215 | 0.80 | 1.00 |
+| after, `europe-west1` | **6.64 s** | **6.70 s** | $0.00063020 | 0.80 | 1.00 |
+| temporary `us-central1` canary | 4.87 s | 5.04 s | $0.00064160 | not rerun | not rerun |
+
+The first post-deploy request was the cold-start sample: 30.83 s wall time and
+20.85 s API time. The warm-only p50 was 6.31 s. Cloud Run timeout is 300 s;
+it was not the bottleneck. The temporary `us-central1` canary was deleted after
+the comparison, so production remains in `europe-west1`.
+The measured mean cost increased in this sample because Vertex output-token
+usage varied; the optimization target here was p50 latency with unchanged
+quality, not a claim of lower per-query cost.
+
+The server-side breakdown after the change was:
+
+| phase | observed range on the ten-request run |
+| --- | ---: |
+| Gemini Embedding | 0.24-0.77 s typical |
+| RAG Engine retrieval | 0.80-1.04 s typical; one 2.82 s sample |
+| Gemini 3 Flash generation | 1.37-6.20 s typical; upstream tail spikes remained |
+| non-model/API overhead | about 0.80-1.04 s |
+
+The implementation logs `retrieval_breakdown`, `query_breakdown`, model, token
+counts, latency, and estimated cost without logging Brain secrets or fact text.
 
 Create a managed RAG Engine corpus:
 
@@ -166,7 +200,7 @@ Vertex and Secret Manager environment as ingestion. The runner creates ten
 questions from real Brain records in memory, does not write those records to the
 repository, and asks `gemini-3.1-flash-lite` to judge citation faithfulness.
 
-Recorded run on 2026-08-18:
+Recorded run on 2026-08-19 after the latency change:
 
 | cases | recall@8 | faithfulness | judge | generator fallbacks |
 | ---: | ---: | ---: | --- | ---: |

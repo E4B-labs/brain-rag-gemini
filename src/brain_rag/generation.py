@@ -91,7 +91,7 @@ class VertexGeminiGenerator:
             use_cache: bool = True,
             structured: bool = True,
         ) -> object:
-            from google.genai.types import GenerateContentConfig
+            from google.genai.types import GenerateContentConfig, ThinkingConfig, ThinkingLevel
 
             prompt = build_prompt(question, contexts)
             if concise:
@@ -99,6 +99,12 @@ class VertexGeminiGenerator:
                     "\nReturn only valid JSON. Keep the answer under 60 words and cite "
                     "one or more supplied FACT_ID values."
                 )
+            thinking_level = self.settings.thinking_level.upper()
+            if "pro" in model.lower() and thinking_level == "MINIMAL":
+                thinking_level = "LOW"
+            thinking_config = ThinkingConfig(
+                thinking_level=ThinkingLevel(thinking_level)
+            )
             if structured:
                 config = GenerateContentConfig(
                     response_mime_type="application/json",
@@ -107,6 +113,7 @@ class VertexGeminiGenerator:
                     temperature=0 if concise else 0.1,
                     cached_content=cache_name if use_cache else None,
                     system_instruction=None if cache_name and use_cache else SYSTEM_PROMPT,
+                    thinking_config=thinking_config,
                 )
             else:
                 config = GenerateContentConfig(
@@ -114,6 +121,7 @@ class VertexGeminiGenerator:
                     temperature=0 if concise else 0.1,
                     cached_content=None,
                     system_instruction=SYSTEM_PROMPT,
+                    thinking_config=thinking_config,
                 )
             return self.client.models.generate_content(
                 model=model,
@@ -177,7 +185,11 @@ class VertexGeminiGenerator:
         return GenerationResult(payload, model, usage.latency_ms, usage.estimated_cost_usd)
 
     async def _ensure_context_cache(self, model: str) -> str | None:
-        if not self.settings.enable_context_cache or self._cache_name:
+        # Vertex requires at least 1,024 cached input tokens; this system prompt is
+        # intentionally short, so avoid a guaranteed failing cache API round trip.
+        if not self.settings.enable_context_cache or len(SYSTEM_PROMPT.split()) < 700:
+            return None
+        if self._cache_name:
             return self._cache_name
         try:
 
