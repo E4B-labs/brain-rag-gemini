@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      SQLITE_PATH: /app/data/brain-rag.sqlite3
+    volumes:
+      - brain_rag_data:/app/data
+
+volumes:
+  brain_rag_data:
+

@@ -1,0 +1,13 @@
+[
+  {"id": "q01", "question": "Gdzie TaskTree przechowuje dane operacyjne?", "relevant_fact_ids": ["demo-1"], "expected_answer": "Firestore"},
+  {"id": "q02", "question": "Gdzie Brain przechowuje obserwacje?", "relevant_fact_ids": ["demo-2"], "expected_answer": "Supabase Postgres"},
+  {"id": "q03", "question": "Jaki system jest wlasnoscia danych operacyjnych?", "relevant_fact_ids": ["demo-1"], "expected_answer": "Firestore"},
+  {"id": "q04", "question": "Jaki system przechowuje encje Brain?", "relevant_fact_ids": ["demo-2"], "expected_answer": "Supabase Postgres"},
+  {"id": "q05", "question": "Czy Brain jest w Firestore?", "relevant_fact_ids": ["demo-2"], "expected_answer": "Nie, w Supabase Postgres"},
+  {"id": "q06", "question": "Czy TaskTree uzywa Firestore?", "relevant_fact_ids": ["demo-1"], "expected_answer": "Tak"},
+  {"id": "q07", "question": "Jakie dane trzyma Brain?", "relevant_fact_ids": ["demo-2"], "expected_answer": "Encje, obserwacje i relacje"},
+  {"id": "q08", "question": "Jakie dane trzyma Firestore w TaskTree?", "relevant_fact_ids": ["demo-1"], "expected_answer": "Dane operacyjne"},
+  {"id": "q09", "question": "Porownaj miejsce danych Brain i danych operacyjnych TaskTree.", "relevant_fact_ids": ["demo-1", "demo-2"], "expected_answer": "Firestore vs Supabase"},
+  {"id": "q10", "question": "Czy Brain przechowuje relacje?", "relevant_fact_ids": ["demo-2"], "expected_answer": "Tak"}
+]
+
