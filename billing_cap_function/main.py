@@ -25,7 +25,11 @@ def stop_billing(cloud_event: CloudEvent) -> None:
     """Disable project billing at or above the budget, unless this is a dry run."""
     message = cloud_event.data["message"]
     raw_payload = base64.b64decode(message["data"]).decode("utf-8")
-    payload = json.loads(raw_payload)
+    try:
+        payload = json.loads(raw_payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        print("Ignoring malformed budget notification payload.")
+        return
     cost_amount = float(payload.get("costAmount", 0))
     budget_amount = float(payload.get("budgetAmount", 0))
     dry_run = bool(payload.get("dryRun", False))
