@@ -90,7 +90,9 @@ and evaluation metrics.
 3. Create a Vertex AI Vector Search index with 768 dimensions and deploy it to
    an endpoint. Set the three `VERTEX_*` variables.
 4. Create the Cloud Run service account and Secret Manager secret with
-   `scripts/deploy.ps1`.
+   `scripts/deploy.ps1`. The command requires `TASKTREE_DATABASE_URL` in the
+   process environment and the existing Vertex index, endpoint, and deployed
+   index IDs; it streams the connection string directly into Secret Manager.
 5. Run the one-time ingestion job and verify `/v1/query` with a real Vertex
    request. The service logs model, latency, token counts, and estimated cost
    for each embedding/generation call.
@@ -101,6 +103,16 @@ requires a provisioned index and endpoint, so it is preferable here to RAG
 Engine: the application needs explicit fact IDs and metadata filters for a
 citation guardrail, while Vector Search exposes those IDs and namespaces
 directly.
+
+Example deployment command after the index exists:
+
+```powershell
+$env:TASKTREE_DATABASE_URL = "<set outside the repository>"
+./scripts/deploy.ps1 -ProjectId "my-gcp-project" `
+  -VertexIndexName "brain-rag-index" `
+  -VertexIndexEndpointName "brain-rag-endpoint" `
+  -VertexDeployedIndexId "brain-rag-deployed"
+```
 
 ## Evaluation
 
@@ -115,4 +127,3 @@ No service-account JSON, API key, Supabase password, or access token belongs in
 this repository. Cloud Run receives secrets from Secret Manager. The answer
 guardrail rejects any citation ID that was not returned by retrieval, and query
 cost and output token limits are enforced before returning a result.
-

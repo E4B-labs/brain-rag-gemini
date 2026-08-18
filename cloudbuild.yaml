@@ -13,7 +13,7 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --service-account=${_RUNTIME_SERVICE_ACCOUNT}
-      - --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=True,VECTOR_STORE_BACKEND=vertex
+      - --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=True,VECTOR_STORE_BACKEND=vertex,VERTEX_INDEX_NAME=${_VERTEX_INDEX_NAME},VERTEX_INDEX_ENDPOINT_NAME=${_VERTEX_INDEX_ENDPOINT_NAME},VERTEX_DEPLOYED_INDEX_ID=${_VERTEX_DEPLOYED_INDEX_ID},VERTEX_VECTOR_LOCATION=${_VERTEX_LOCATION}
       - --set-secrets=TASKTREE_DATABASE_URL=tasktree-database-url:latest
       - --no-allow-unauthenticated
 substitutions:
@@ -21,6 +21,9 @@ substitutions:
   _REPOSITORY: brain-rag
   _SERVICE: brain-rag-gemini
   _RUNTIME_SERVICE_ACCOUNT: brain-rag-runtime@$PROJECT_ID.iam.gserviceaccount.com
+  _VERTEX_INDEX_NAME: ""
+  _VERTEX_INDEX_ENDPOINT_NAME: ""
+  _VERTEX_DEPLOYED_INDEX_ID: ""
+  _VERTEX_LOCATION: us-central1
 options:
   logging: CLOUD_LOGGING_ONLY
-
