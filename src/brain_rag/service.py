@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 
@@ -8,6 +9,8 @@ from .guardrails import validate_grounding
 from .models import FactChunk, IngestResponse, QueryRequest, QueryResponse, SourceCitation
 from .ports import BrainSource, Embedder, Generator, VectorStore
 from .retrieval import rerank
+
+logger = logging.getLogger("brain_rag.service")
 
 
 class RagService:
@@ -31,7 +34,7 @@ class RagService:
         facts = await self.source.fetch_facts(workspace)
         chunks = chunk_facts(facts)
         total_written = 0
-        batch_size = 16
+        batch_size = 128
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start : start + batch_size]
             embedding = await self.embedder.embed(
@@ -72,15 +75,26 @@ class RagService:
             )
             for fact_id in payload.citations
         ]
-        return QueryResponse(
+        request_id = str(uuid.uuid4())
+        response = QueryResponse(
             answer=payload.answer,
             citations=citations,
             model=generation.model,
             retrieved_count=len(contexts),
             latency_ms=(time.perf_counter() - started) * 1000,
             estimated_cost_usd=total_cost,
-            request_id=str(uuid.uuid4()),
+            request_id=request_id,
         )
+        logger.info(
+            "query_complete request_id=%s model=%s retrieved_count=%d latency_ms=%.2f "
+            "estimated_cost_usd=%.8f",
+            request_id,
+            response.model,
+            response.retrieved_count,
+            response.latency_ms,
+            response.estimated_cost_usd,
+        )
+        return response
 
     async def retrieve(self, request: QueryRequest) -> tuple[EmbeddingResult, list[FactChunk]]:
         embedding = await self.embedder.embed([request.question], task_type="RETRIEVAL_QUERY")

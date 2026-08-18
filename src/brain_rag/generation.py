@@ -103,11 +103,15 @@ class VertexGeminiGenerator:
             )
 
         response = await asyncio.to_thread(call)
-        text = str(getattr(response, "text", "") or "").strip()
-        if not text:
-            raise RuntimeError("Vertex AI returned an empty response")
         try:
-            payload = AnswerPayload.model_validate(json.loads(text))
+            parsed = getattr(response, "parsed", None)
+            if parsed is not None:
+                payload = AnswerPayload.model_validate(parsed)
+            else:
+                text = str(getattr(response, "text", "") or "").strip()
+                if not text:
+                    raise RuntimeError("Vertex AI returned an empty response")
+                payload = AnswerPayload.model_validate(json.loads(text))
         except (json.JSONDecodeError, ValueError) as exc:
             raise RuntimeError("Vertex AI response was not valid grounded JSON") from exc
 

@@ -12,6 +12,10 @@ from .ports import BrainSource, Embedder, Generator, VectorStore
 from .service import RagService
 from .stores import RagEngineStore, SQLiteVectorStore, VertexVectorSearchStore
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 logger = logging.getLogger("brain_rag.api")
 
 
@@ -88,6 +92,7 @@ def build_service() -> RagService:
             project=project,
             location=settings.rag_location,
             corpus_name=settings.rag_corpus_name,
+            staging_bucket=settings.rag_staging_bucket,
         )
     else:
         store = SQLiteVectorStore(settings.sqlite_path)

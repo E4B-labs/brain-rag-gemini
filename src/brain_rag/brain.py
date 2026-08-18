@@ -38,8 +38,8 @@ class SupabaseBrainSource:
               AND o.body IS NOT NULL
               AND btrim(o.body) <> ''
               AND o.body NOT LIKE 'Szukaj takze po:%%'
-              AND (%s IS NULL OR e.name ILIKE '%%' || %s || '%%')
-              AND (%s IS NULL OR COALESCE(o.section, '') = %s)
+              AND (%s::text IS NULL OR e.name ILIKE '%%' || %s::text || '%%')
+              AND (%s::text IS NULL OR COALESCE(o.section, '') = %s::text)
             ORDER BY o.occurred_at DESC, o.id
         """
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:

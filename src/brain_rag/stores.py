@@ -1,9 +1,11 @@
 import asyncio
+import importlib
 import json
 import math
 import re
 import sqlite3
 import tempfile
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -315,13 +317,21 @@ class RagEngineStore:
     payload so retrieved contexts remain citation-safe across process restarts.
     """
 
-    def __init__(self, *, project: str, location: str, corpus_name: str) -> None:
+    def __init__(
+        self,
+        *,
+        project: str,
+        location: str,
+        corpus_name: str,
+        staging_bucket: str | None = None,
+    ) -> None:
         import importlib
 
         vertexai: Any = importlib.import_module("vertexai")
         self._rag: Any = importlib.import_module("vertexai.rag")
         vertexai.init(project=project, location=location)
         self._corpus_name = corpus_name
+        self._staging_bucket = staging_bucket
         self._chunks: dict[str, FactChunk] = {}
 
     async def upsert(self, chunks: Sequence[FactChunk], vectors: Sequence[Sequence[float]]) -> int:
@@ -329,7 +339,7 @@ class RagEngineStore:
         return await asyncio.to_thread(self._upsert_sync, chunks)
 
     def _upsert_sync(self, chunks: Sequence[FactChunk]) -> int:
-        written = 0
+        paths: list[str] = []
         for chunk in chunks:
             metadata = json.dumps(
                 {
@@ -347,17 +357,66 @@ class RagEngineStore:
             ) as file:
                 file.write(f"{metadata}\n{chunk.text}\n")
                 local_path = file.name
-            try:
-                self._rag.upload_file(
-                    corpus_name=self._corpus_name,
-                    path=local_path,
-                    display_name=chunk.chunk_id,
-                )
-            finally:
-                Path(local_path).unlink(missing_ok=True)
+            paths.append(local_path)
             self._chunks[chunk.chunk_id] = chunk
-            written += 1
-        return written
+        try:
+            if paths:
+                if self._staging_bucket:
+                    self._import_from_gcs(paths, chunks)
+                else:
+                    self._upload_locally(paths, chunks)
+        finally:
+            for path in paths:
+                for _ in range(5):
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                        break
+                    except PermissionError:
+                        time.sleep(1)
+        return len(chunks)
+
+    def _upload_locally(self, paths: list[str], chunks: Sequence[FactChunk]) -> None:
+        for path, chunk in zip(paths, chunks, strict=True):
+            for attempt in range(6):
+                try:
+                    self._rag.upload_file(
+                        corpus_name=self._corpus_name,
+                        path=path,
+                        display_name=chunk.chunk_id,
+                    )
+                    break
+                except RuntimeError as exc:
+                    if "429" not in str(exc) and "RESOURCE_EXHAUSTED" not in str(exc):
+                        raise
+                    if attempt == 5:
+                        raise
+                    time.sleep(10 * (attempt + 1))
+
+    def _import_from_gcs(self, paths: list[str], chunks: Sequence[FactChunk]) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        storage: Any = importlib.import_module("google.cloud.storage")
+        client = storage.Client()
+        bucket = client.bucket(self._staging_bucket)
+        names = [f"brain-rag/{chunk.chunk_id.replace(':', '_')}.txt" for chunk in chunks]
+
+        def upload(item: tuple[str, str]) -> None:
+            path, name = item
+            bucket.blob(name).upload_from_filename(path, content_type="text/plain")
+
+        with ThreadPoolExecutor(max_workers=min(16, len(paths))) as executor:
+            list(executor.map(upload, zip(paths, names, strict=True)))
+        uris = [f"gs://{self._staging_bucket}/{name}" for name in names]
+        operations = []
+        for start in range(0, len(uris), 25):
+            operations.append(self._rag.import_files_async(
+                corpus_name=self._corpus_name,
+                paths=uris[start : start + 25],
+            ))
+        for operation in operations:
+            operation.result()
+        for name in names:
+            bucket.blob(name).delete()
 
     async def search(
         self,

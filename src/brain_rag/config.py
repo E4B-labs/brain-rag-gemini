@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     sqlite_path: str = Field(default="data/brain-rag.sqlite3", validation_alias="SQLITE_PATH")
     rag_corpus_name: str | None = Field(default=None, validation_alias="RAG_CORPUS_NAME")
     rag_location: str = Field(default="us-central1", validation_alias="RAG_LOCATION")
+    rag_staging_bucket: str | None = Field(
+        default=None, validation_alias="RAG_STAGING_BUCKET"
+    )
     vertex_vector_location: str = Field(
         default="us-central1", validation_alias="VERTEX_VECTOR_LOCATION"
     )
