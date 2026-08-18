@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     enable_context_cache: bool = Field(default=True, validation_alias="ENABLE_CONTEXT_CACHE")
     max_output_tokens: int = Field(default=800, validation_alias="MAX_OUTPUT_TOKENS")
     max_query_cost_usd: float = Field(default=0.05, validation_alias="MAX_QUERY_COST_USD")
+    rag_min_similarity: float = Field(default=0.55, validation_alias="RAG_MIN_SIMILARITY")
+    rag_candidate_multiplier: int = Field(
+        default=8, validation_alias="RAG_CANDIDATE_MULTIPLIER"
+    )
     max_query_chars: int = 20_000
 
     def validate_runtime(self) -> None:
@@ -54,6 +58,10 @@ class Settings(BaseSettings):
             raise ValueError("MAX_OUTPUT_TOKENS must be positive")
         if self.max_query_cost_usd <= 0:
             raise ValueError("MAX_QUERY_COST_USD must be positive")
+        if not 0 <= self.rag_min_similarity < 1:
+            raise ValueError("RAG_MIN_SIMILARITY must be between 0 and 1")
+        if self.rag_candidate_multiplier <= 0:
+            raise ValueError("RAG_CANDIDATE_MULTIPLIER must be positive")
 
 
 @lru_cache(maxsize=1)

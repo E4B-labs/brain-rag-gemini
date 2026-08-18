@@ -81,7 +81,11 @@ class VertexFaithfulnessJudge:
             )
 
         response = await asyncio.to_thread(call)
-        payload = JudgePayload.model_validate(json.loads(str(response.text)))
+        parsed = getattr(response, "parsed", None)
+        if parsed is not None:
+            payload = JudgePayload.model_validate(parsed)
+        else:
+            payload = JudgePayload.model_validate(json.loads(str(response.text)))
         metadata = getattr(response, "usage_metadata", None)
         input_tokens = int(getattr(metadata, "prompt_token_count", 0) or 0)
         output_tokens = int(getattr(metadata, "candidates_token_count", 0) or 0)

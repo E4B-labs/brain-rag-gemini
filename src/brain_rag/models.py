@@ -60,7 +60,7 @@ class SourceCitation(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=3, max_length=20_000)
-    top_k: int = Field(default=5, ge=1, le=20)
+    top_k: int = Field(default=8, ge=1, le=20)
     entity: str | None = Field(default=None, max_length=200)
     section: str | None = Field(default=None, max_length=50)
 

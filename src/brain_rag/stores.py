@@ -324,6 +324,7 @@ class RagEngineStore:
         location: str,
         corpus_name: str,
         staging_bucket: str | None = None,
+        min_similarity: float = 0.55,
     ) -> None:
         import importlib
 
@@ -332,6 +333,7 @@ class RagEngineStore:
         vertexai.init(project=project, location=location)
         self._corpus_name = corpus_name
         self._staging_bucket = staging_bucket
+        self._min_similarity = min_similarity
         self._chunks: dict[str, FactChunk] = {}
 
     async def upsert(self, chunks: Sequence[FactChunk], vectors: Sequence[Sequence[float]]) -> int:
@@ -407,14 +409,17 @@ class RagEngineStore:
         with ThreadPoolExecutor(max_workers=min(16, len(paths))) as executor:
             list(executor.map(upload, zip(paths, names, strict=True)))
         uris = [f"gs://{self._staging_bucket}/{name}" for name in names]
-        operations = []
-        for start in range(0, len(uris), 25):
-            operations.append(self._rag.import_files_async(
-                corpus_name=self._corpus_name,
-                paths=uris[start : start + 25],
-            ))
-        for operation in operations:
-            operation.result()
+        groups = [uris[start : start + 25] for start in range(0, len(uris), 25)]
+
+        async def import_and_wait() -> None:
+            for group in groups:
+                operation = await self._rag.import_files_async(
+                    corpus_name=self._corpus_name,
+                    paths=group,
+                )
+                await operation.result()
+
+        asyncio.run(import_and_wait())
         for name in names:
             bucket.blob(name).delete()
 
@@ -442,7 +447,9 @@ class RagEngineStore:
         response = self._rag.retrieval_query(
             text=query_text,
             rag_resources=[self._rag.RagResource(rag_corpus=self._corpus_name)],
-            rag_retrieval_config=self._rag.RagRetrievalConfig(top_k=max(top_k * 4, top_k)),
+            rag_retrieval_config=self._rag.RagRetrievalConfig(
+                top_k=min(20, max(top_k * 2, top_k))
+            ),
         )
         results: list[ScoredChunk] = []
         for context in response.contexts.contexts:
@@ -454,8 +461,11 @@ class RagEngineStore:
             if section and section != chunk.section:
                 continue
             raw_score = float(getattr(context, "score", 0.0) or 0.0)
-            vector_score = 1.0 - raw_score if raw_score > 1.0 else raw_score
+            # RAG Engine returns a distance-like score in [0, 1]; lower is better.
+            vector_score = 1.0 - raw_score
             vector_score = max(-1.0, min(1.0, vector_score))
+            if vector_score < getattr(self, "_min_similarity", 0.55):
+                continue
             lexical_score = _lexical(
                 query_text, f"{chunk.entity_name} {chunk.section} {chunk.text}"
             )

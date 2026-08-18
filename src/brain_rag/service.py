@@ -55,13 +55,14 @@ class RagService:
         embedding, contexts = await self.retrieve(request)
         if not contexts:
             raise ValueError("No grounded facts found for this query")
+        generation_contexts = contexts[:1]
         generation = await self.generator.generate(
             request.question,
-            contexts,
+            generation_contexts,
             max_output_tokens=self.settings.max_output_tokens,
         )
         payload = generation.payload
-        validate_grounding(payload, contexts)
+        validate_grounding(payload, generation_contexts)
         total_cost = embedding.estimated_cost_usd + generation.estimated_cost_usd
         if total_cost > self.settings.max_query_cost_usd:
             raise ValueError("Query cost limit exceeded")
@@ -101,7 +102,7 @@ class RagService:
         candidates = await self.store.search(
             embedding.vectors[0],
             request.question,
-            top_k=min(50, request.top_k * 4),
+            top_k=min(20, request.top_k * self.settings.rag_candidate_multiplier),
             entity=request.entity,
             section=request.section,
         )

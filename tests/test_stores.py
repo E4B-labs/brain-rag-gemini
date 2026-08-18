@@ -59,6 +59,54 @@ def test_rag_engine_store_decodes_citation_metadata(facts) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rag_engine_store_converts_distance_to_similarity_and_filters(facts) -> None:
+    chunks = chunk_facts(facts)
+
+    def context(chunk, score):
+        metadata = json.dumps(
+            {
+                "chunk_id": chunk.chunk_id,
+                "fact_id": chunk.fact_id,
+                "entity_id": chunk.entity_id,
+                "entity_kind": chunk.entity_kind,
+                "entity_name": chunk.entity_name,
+                "section": chunk.section,
+            }
+        )
+        return SimpleNamespace(
+            text=f"{metadata}\n{chunk.text}", source_display_name="", score=score
+        )
+
+    class FakeRag:
+        @staticmethod
+        def RagResource(**kwargs):
+            return kwargs
+
+        @staticmethod
+        def RagRetrievalConfig(**kwargs):
+            return kwargs
+
+        def retrieval_query(self, **kwargs):
+            assert kwargs["rag_retrieval_config"]["top_k"] == 8
+            return SimpleNamespace(
+                contexts=SimpleNamespace(
+                    contexts=[context(chunks[0], 0.2), context(chunks[1], 0.6)]
+                )
+            )
+
+    store = object.__new__(RagEngineStore)
+    store._rag = FakeRag()
+    store._corpus_name = "corpus"
+    store._chunks = {}
+    store._min_similarity = 0.55
+
+    results = await store.search([], "Firestore", top_k=4)
+
+    assert [item.chunk.fact_id for item in results] == ["f-1"]
+    assert results[0].vector_score == pytest.approx(0.8)
+
+
+@pytest.mark.asyncio
 async def test_rag_engine_store_retrieval_applies_metadata_filters(facts) -> None:
     chunk = chunk_facts(facts)[0]
     metadata = json.dumps(

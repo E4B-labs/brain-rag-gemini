@@ -93,6 +93,7 @@ def build_service() -> RagService:
             location=settings.rag_location,
             corpus_name=settings.rag_corpus_name,
             staging_bucket=settings.rag_staging_bucket,
+            min_similarity=settings.rag_min_similarity,
         )
     else:
         store = SQLiteVectorStore(settings.sqlite_path)

@@ -34,7 +34,7 @@ The authenticated Cloud Run deployment is available at
 [`https://brain-rag-gemini-36849787065.europe-west1.run.app`](https://brain-rag-gemini-36849787065.europe-west1.run.app).
 It runs with `min-instances=0`, uses the `brain-rag-runtime` service account,
 and requires `roles/run.invoker`; it is intentionally not public because it
-reads real Brain memory. Deployed revision: `brain-rag-gemini-00003-mzh`.
+reads real Brain memory. Deployed revision: `brain-rag-gemini-00008-g4v`.
 
 For local development, the same ports are backed by deterministic hash
 embeddings and SQLite. This makes tests and `docker compose up` independent of
@@ -68,7 +68,7 @@ Then:
 Invoke-RestMethod http://localhost:8080/health
 Invoke-RestMethod -Method Post http://localhost:8080/v1/ingest
 Invoke-RestMethod -Method Post -ContentType 'application/json' `
-  -Body '{"question":"Gdzie Brain przechowuje obserwacje?","top_k":3}' `
+  -Body '{"question":"Gdzie Brain przechowuje obserwacje?","top_k":8}' `
   http://localhost:8080/v1/query
 ```
 
@@ -118,6 +118,24 @@ guardrail. Staging objects are deleted after each completed import batch.
 The `vertex` backend remains available for a separately approved, pre-provisioned
 Vector Search index; neither the API nor the deployment script creates one.
 
+RAG Engine returns a distance-like score where lower is better. The adapter
+converts it to `similarity = 1 - distance`, applies the configurable default
+`RAG_MIN_SIMILARITY=0.55`, asks for up to 20 candidates, and reranks the final
+`top_k` results. The API default is `top_k=8` (maximum 20). Imports are submitted
+in groups of 25 and awaited sequentially because a managed corpus permits only
+one active import operation at a time. Retrieval reports the full reranked top-k,
+while generation receives the best context first; malformed structured output
+retries without cache and then falls back to a grounded low-confidence payload.
+
+### Corpus verification
+
+On 2026-08-18, the real Brain workspace `M0yyyzLqVEOqAyxpZp0Q` contained 1,394
+facts and 1,394 chunks. The managed RAG Engine corpus contained 1,988 historical
+`RagFile` records, but 1,394 unique logical `fact_id:chunk_index` entries matched
+the current Brain corpus: **1,394 / 1,394 = 100.00% coverage**. The missing 226
+chunks found during the check were re-embedded with `gemini-embedding-001` and
+imported successfully. No Vector Search endpoint was created.
+
 Create a managed RAG Engine corpus:
 
 ```powershell
@@ -142,10 +160,24 @@ $env:TASKTREE_DATABASE_URL = "<set outside the repository>"
 
 ## Evaluation
 
-`eval/golden.json` contains ten small gold questions. `scripts/evaluate.py` is a
-starter runner for the local fixture; the production evaluation should run the
-retriever and ask `gemini-3.1-flash-lite` to judge faithfulness. The metric
-helpers are in `brain_rag.eval` and report recall@k and citation faithfulness.
+`eval/golden.json` contains ten small fixture questions. For the real workspace,
+run `uv run python scripts/evaluate.py --real-brain --top-k 8` with the same
+Vertex and Secret Manager environment as ingestion. The runner creates ten
+questions from real Brain records in memory, does not write those records to the
+repository, and asks `gemini-3.1-flash-lite` to judge citation faithfulness.
+
+Recorded run on 2026-08-18:
+
+| cases | recall@8 | faithfulness | judge | generator fallbacks |
+| ---: | ---: | ---: | --- | ---: |
+| 10 | 0.80 | 1.00 | `gemini-3.1-flash-lite` | 0 |
+
+The recall result is for the ten generated real-Brain questions, not a claim
+about every possible Brain query. Faithfulness is an LLM-as-judge score over
+the cited retrieved context. A deployed smoke query on revision
+`brain-rag-gemini-00008-g4v` returned `retrieved_count=8`, latency `48744.85 ms`,
+and estimated cost `$0.00013250`; Cloud Logging recorded the embedding and
+generation calls separately.
 
 ## Optional Google ADK tool
 

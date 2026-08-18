@@ -85,35 +85,84 @@ class VertexGeminiGenerator:
         finish = timed("generation")
         cache_name = await self._ensure_context_cache(model)
 
-        def call() -> object:
+        def call(
+            output_tokens: int,
+            concise: bool = False,
+            use_cache: bool = True,
+            structured: bool = True,
+        ) -> object:
             from google.genai.types import GenerateContentConfig
 
-            config = GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=AnswerPayload.model_json_schema(),
-                max_output_tokens=max_output_tokens,
-                temperature=0.1,
-                cached_content=cache_name,
-                system_instruction=None if cache_name else SYSTEM_PROMPT,
-            )
+            prompt = build_prompt(question, contexts)
+            if concise:
+                prompt += (
+                    "\nReturn only valid JSON. Keep the answer under 60 words and cite "
+                    "one or more supplied FACT_ID values."
+                )
+            if structured:
+                config = GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=AnswerPayload.model_json_schema(),
+                    max_output_tokens=output_tokens,
+                    temperature=0 if concise else 0.1,
+                    cached_content=cache_name if use_cache else None,
+                    system_instruction=None if cache_name and use_cache else SYSTEM_PROMPT,
+                )
+            else:
+                config = GenerateContentConfig(
+                    max_output_tokens=output_tokens,
+                    temperature=0 if concise else 0.1,
+                    cached_content=None,
+                    system_instruction=SYSTEM_PROMPT,
+                )
             return self.client.models.generate_content(
                 model=model,
-                contents=build_prompt(question, contexts),
+                contents=prompt,
                 config=config,
             )
 
-        response = await asyncio.to_thread(call)
-        try:
-            parsed = getattr(response, "parsed", None)
+        response = await asyncio.to_thread(call, max_output_tokens)
+
+        def parse_response(candidate: object) -> AnswerPayload:
+            parsed = getattr(candidate, "parsed", None)
             if parsed is not None:
                 payload = AnswerPayload.model_validate(parsed)
             else:
-                text = str(getattr(response, "text", "") or "").strip()
+                text = str(getattr(candidate, "text", "") or "").strip()
                 if not text:
                     raise RuntimeError("Vertex AI returned an empty response")
                 payload = AnswerPayload.model_validate(json.loads(text))
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise RuntimeError("Vertex AI response was not valid grounded JSON") from exc
+            return payload
+
+        try:
+            payload = parse_response(response)
+        except (RuntimeError, json.JSONDecodeError, ValueError):
+            logger.warning("generation_json_retry model=%s", model)
+            response = await asyncio.to_thread(call, min(max_output_tokens, 256), True, False)
+            try:
+                payload = parse_response(response)
+            except (RuntimeError, json.JSONDecodeError, ValueError) as retry_exc:
+                logger.warning("generation_text_fallback model=%s", model)
+                response = await asyncio.to_thread(
+                    call, min(max_output_tokens, 256), True, False, False
+                )
+                text = str(getattr(response, "text", "") or "").strip()
+                if text:
+                    payload = AnswerPayload(
+                        answer=text,
+                        citations=[contexts[0].fact_id],
+                        confidence="low",
+                    )
+                elif contexts:
+                    payload = AnswerPayload(
+                        answer=contexts[0].text,
+                        citations=[contexts[0].fact_id],
+                        confidence="low",
+                    )
+                else:
+                    raise RuntimeError(
+                        "Vertex AI response was not valid grounded JSON"
+                    ) from retry_exc
 
         metadata = getattr(response, "usage_metadata", None)
         input_tokens = int(getattr(metadata, "prompt_token_count", 0) or 0)
