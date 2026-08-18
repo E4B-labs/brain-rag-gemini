@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     vector_store_backend: str = Field(default="local", validation_alias="VECTOR_STORE_BACKEND")
     sqlite_path: str = Field(default="data/brain-rag.sqlite3", validation_alias="SQLITE_PATH")
+    rag_corpus_name: str | None = Field(default=None, validation_alias="RAG_CORPUS_NAME")
+    rag_location: str = Field(default="us-central1", validation_alias="RAG_LOCATION")
     vertex_vector_location: str = Field(
         default="us-central1", validation_alias="VERTEX_VECTOR_LOCATION"
     )
@@ -41,8 +43,8 @@ class Settings(BaseSettings):
     max_query_chars: int = 20_000
 
     def validate_runtime(self) -> None:
-        if self.vector_store_backend not in {"local", "vertex"}:
-            raise ValueError("VECTOR_STORE_BACKEND must be 'local' or 'vertex'")
+        if self.vector_store_backend not in {"local", "rag", "vertex"}:
+            raise ValueError("VECTOR_STORE_BACKEND must be 'local', 'rag', or 'vertex'")
         if self.embedding_dimension <= 0:
             raise ValueError("EMBEDDING_DIMENSION must be positive")
         if self.max_output_tokens <= 0:

@@ -3,8 +3,10 @@ import json
 import math
 import re
 import sqlite3
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from .models import FactChunk, ScoredChunk
 
@@ -303,3 +305,128 @@ class VertexVectorSearchStore:
                 )
             )
         return results
+
+
+class RagEngineStore:
+    """Vertex AI RAG Engine adapter using a managed RAG corpus.
+
+    RAG Engine owns the vector database; no user-managed Vector Search index or
+    endpoint is created by this adapter. Fact metadata is stored in the file
+    payload so retrieved contexts remain citation-safe across process restarts.
+    """
+
+    def __init__(self, *, project: str, location: str, corpus_name: str) -> None:
+        import importlib
+
+        vertexai: Any = importlib.import_module("vertexai")
+        self._rag: Any = importlib.import_module("vertexai.rag")
+        vertexai.init(project=project, location=location)
+        self._corpus_name = corpus_name
+        self._chunks: dict[str, FactChunk] = {}
+
+    async def upsert(self, chunks: Sequence[FactChunk], vectors: Sequence[Sequence[float]]) -> int:
+        del vectors
+        return await asyncio.to_thread(self._upsert_sync, chunks)
+
+    def _upsert_sync(self, chunks: Sequence[FactChunk]) -> int:
+        written = 0
+        for chunk in chunks:
+            metadata = json.dumps(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "fact_id": chunk.fact_id,
+                    "entity_id": chunk.entity_id,
+                    "entity_kind": chunk.entity_kind,
+                    "entity_name": chunk.entity_name,
+                    "section": chunk.section,
+                },
+                ensure_ascii=True,
+            )
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", suffix=".txt", delete=False
+            ) as file:
+                file.write(f"{metadata}\n{chunk.text}\n")
+                local_path = file.name
+            try:
+                self._rag.upload_file(
+                    corpus_name=self._corpus_name,
+                    path=local_path,
+                    display_name=chunk.chunk_id,
+                )
+            finally:
+                Path(local_path).unlink(missing_ok=True)
+            self._chunks[chunk.chunk_id] = chunk
+            written += 1
+        return written
+
+    async def search(
+        self,
+        query_vector: Sequence[float],
+        query_text: str,
+        *,
+        top_k: int,
+        entity: str | None = None,
+        section: str | None = None,
+    ) -> list[ScoredChunk]:
+        del query_vector
+        return await asyncio.to_thread(
+            self._search_sync, query_text, top_k, entity, section
+        )
+
+    def _search_sync(
+        self,
+        query_text: str,
+        top_k: int,
+        entity: str | None,
+        section: str | None,
+    ) -> list[ScoredChunk]:
+        response = self._rag.retrieval_query(
+            text=query_text,
+            rag_resources=[self._rag.RagResource(rag_corpus=self._corpus_name)],
+            rag_retrieval_config=self._rag.RagRetrievalConfig(top_k=max(top_k * 4, top_k)),
+        )
+        results: list[ScoredChunk] = []
+        for context in response.contexts.contexts:
+            chunk = self._decode_context(context)
+            if chunk is None:
+                continue
+            if entity and entity.lower() not in chunk.entity_name.lower():
+                continue
+            if section and section != chunk.section:
+                continue
+            raw_score = float(getattr(context, "score", 0.0) or 0.0)
+            vector_score = 1.0 - raw_score if raw_score > 1.0 else raw_score
+            vector_score = max(-1.0, min(1.0, vector_score))
+            lexical_score = _lexical(
+                query_text, f"{chunk.entity_name} {chunk.section} {chunk.text}"
+            )
+            results.append(
+                ScoredChunk(
+                    chunk=chunk,
+                    vector_score=vector_score,
+                    lexical_score=lexical_score,
+                    score=max(0.0, 0.75 * max(vector_score, 0.0) + 0.25 * lexical_score),
+                )
+            )
+        results.sort(key=lambda item: (item.score, item.lexical_score), reverse=True)
+        return results[:top_k]
+
+    def _decode_context(self, context: object) -> FactChunk | None:
+        display_name = str(getattr(context, "source_display_name", "") or "")
+        if display_name in self._chunks:
+            return self._chunks[display_name]
+        raw_text = str(getattr(context, "text", "") or "")
+        metadata_line, _, body = raw_text.partition("\n")
+        try:
+            metadata = json.loads(metadata_line)
+            return FactChunk(
+                chunk_id=metadata["chunk_id"],
+                fact_id=metadata["fact_id"],
+                entity_id=metadata["entity_id"],
+                entity_kind=metadata["entity_kind"],
+                entity_name=metadata["entity_name"],
+                section=metadata["section"],
+                text=body.strip(),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None

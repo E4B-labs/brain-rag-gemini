@@ -2,8 +2,9 @@
 
 Production-shaped, grounded RAG over the Brain memory used by TaskTree.
 The RAG runtime is Google Cloud-native: Gemini embeddings and generation run on
-Vertex AI, production vectors run on Vertex AI Vector Search, metadata runs in
-Firestore, secrets run in Secret Manager, and the API deploys to Cloud Run.
+Vertex AI, local development uses SQLite, the managed production path uses
+Vertex AI RAG Engine, secrets run in Secret Manager, and the API deploys to
+Cloud Run. Vector Search is an explicit opt-in adapter only.
 
 TaskTree's source of truth is split by design: operational application data is
 in Firestore, while Brain's entities, observations, and relations are in the
@@ -16,8 +17,8 @@ a read-only adapter and does not copy or mutate the source database.
 flowchart LR
   T[TaskTree Brain\nSupabase Postgres] --> I[Ingest worker]
   I --> E[Gemini Embedding 001\nVertex AI]
-  E --> V[Vertex AI Vector Search]
-  V --> F[Firestore metadata\nchunk and citation records]
+  E --> V[Vertex AI RAG Engine\nmanaged corpus]
+  V --> F[Grounded context\nmetadata in payload]
   C[Cloud Run FastAPI] --> Q[Query embedding]
   Q --> V
   C --> G[Gemini 3 Flash\nVertex AI]
@@ -87,31 +88,39 @@ and evaluation metrics.
    `GOOGLE_GENAI_USE_VERTEXAI=True`.
 2. Set `TASKTREE_DATABASE_URL` outside the repository and grant the read-only
    role only the Brain tables needed by the adapter.
-3. Create a Vertex AI Vector Search index with 768 dimensions and deploy it to
-   an endpoint. Set the three `VERTEX_*` variables.
+3. Create a managed RAG Engine corpus (no Vector Search endpoint) with
+   `scripts/create_rag_corpus.py`, or use an existing corpus name.
 4. Create the Cloud Run service account and Secret Manager secret with
-   `scripts/deploy.ps1`. The command requires `TASKTREE_DATABASE_URL` in the
-   process environment and the existing Vertex index, endpoint, and deployed
-   index IDs; it streams the connection string directly into Secret Manager.
+   `scripts/deploy.ps1 -VectorBackend rag -RagCorpusName <corpus-resource>`.
+   The command requires `TASKTREE_DATABASE_URL` in the process environment and
+   streams the connection string directly into Secret Manager.
 5. Run the one-time ingestion job and verify `/v1/query` with a real Vertex
    request. The service logs model, latency, token counts, and estimated cost
    for each embedding/generation call.
 
-The local SQLite adapter is intentionally retained for tests and development;
-production uses the `VertexVectorSearchStore` adapter. Vertex Vector Search
-requires a provisioned index and endpoint, so it is preferable here to RAG
-Engine: the application needs explicit fact IDs and metadata filters for a
-citation guardrail, while Vector Search exposes those IDs and namespaces
-directly.
+The local SQLite adapter is the default for tests and development. The `rag`
+backend uploads chunk metadata with each document and retrieves from a managed
+RAG Engine corpus, so no user-managed Vector Search endpoint is needed. Entity
+and section filters are applied after retrieval before the grounding guardrail.
+The `vertex` backend remains available for a separately approved, pre-provisioned
+Vector Search index; neither the API nor the deployment script creates one.
 
-Example deployment command after the index exists:
+Create a managed RAG Engine corpus:
+
+```powershell
+uv run python scripts/create_rag_corpus.py `
+  --project brain-rag-gemini `
+  --location us-central1 `
+  --display-name brain-rag-gemini
+```
+
+Example deployment command after the corpus exists:
 
 ```powershell
 $env:TASKTREE_DATABASE_URL = "<set outside the repository>"
-./scripts/deploy.ps1 -ProjectId "my-gcp-project" `
-  -VertexIndexName "brain-rag-index" `
-  -VertexIndexEndpointName "brain-rag-endpoint" `
-  -VertexDeployedIndexId "brain-rag-deployed"
+./scripts/deploy.ps1 -ProjectId "brain-rag-gemini" `
+  -VectorBackend rag `
+  -RagCorpusName "projects/brain-rag-gemini/locations/us-central1/ragCorpora/<id>"
 ```
 
 ## Evaluation

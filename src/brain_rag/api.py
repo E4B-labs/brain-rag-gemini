@@ -10,7 +10,7 @@ from .generation import LocalGroundedGenerator, VertexGeminiGenerator
 from .models import IngestResponse, QueryRequest, QueryResponse
 from .ports import BrainSource, Embedder, Generator, VectorStore
 from .service import RagService
-from .stores import SQLiteVectorStore, VertexVectorSearchStore
+from .stores import RagEngineStore, SQLiteVectorStore, VertexVectorSearchStore
 
 logger = logging.getLogger("brain_rag.api")
 
@@ -79,6 +79,15 @@ def build_service() -> RagService:
             endpoint_name=endpoint_name,
             deployed_index_id=deployed_index_id,
             metadata_collection=settings.vertex_metadata_collection,
+        )
+    elif settings.vector_store_backend == "rag":
+        project = settings.google_cloud_project
+        if not project or not settings.rag_corpus_name:
+            raise ValueError("RAG backend requires GOOGLE_CLOUD_PROJECT and RAG_CORPUS_NAME")
+        store = RagEngineStore(
+            project=project,
+            location=settings.rag_location,
+            corpus_name=settings.rag_corpus_name,
         )
     else:
         store = SQLiteVectorStore(settings.sqlite_path)

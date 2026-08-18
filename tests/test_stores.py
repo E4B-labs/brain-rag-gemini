@@ -1,7 +1,10 @@
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from brain_rag.chunking import chunk_facts
-from brain_rag.stores import InMemoryVectorStore, SQLiteVectorStore
+from brain_rag.stores import InMemoryVectorStore, RagEngineStore, SQLiteVectorStore
 
 
 @pytest.mark.asyncio
@@ -30,3 +33,73 @@ async def test_sqlite_store_round_trip(tmp_path, facts) -> None:
     await store.upsert(chunks, [[1, 0, 0, 0]] * len(chunks))
     results = await store.search([1, 0, 0, 0], "Firestore", top_k=2)
     assert results[0].chunk.fact_id == "f-1"
+
+
+def test_rag_engine_store_decodes_citation_metadata(facts) -> None:
+    chunk = chunk_facts(facts)[0]
+    store = object.__new__(RagEngineStore)
+    store._chunks = {}
+    metadata = json.dumps(
+        {
+            "chunk_id": chunk.chunk_id,
+            "fact_id": chunk.fact_id,
+            "entity_id": chunk.entity_id,
+            "entity_kind": chunk.entity_kind,
+            "entity_name": chunk.entity_name,
+            "section": chunk.section,
+        }
+    )
+    context = SimpleNamespace(text=f"{metadata}\n{chunk.text}", source_display_name="")
+
+    decoded = store._decode_context(context)
+
+    assert decoded is not None
+    assert decoded.fact_id == chunk.fact_id
+    assert decoded.text == chunk.text
+
+
+@pytest.mark.asyncio
+async def test_rag_engine_store_retrieval_applies_metadata_filters(facts) -> None:
+    chunk = chunk_facts(facts)[0]
+    metadata = json.dumps(
+        {
+            "chunk_id": chunk.chunk_id,
+            "fact_id": chunk.fact_id,
+            "entity_id": chunk.entity_id,
+            "entity_kind": chunk.entity_kind,
+            "entity_name": chunk.entity_name,
+            "section": chunk.section,
+        }
+    )
+
+    class FakeRag:
+        @staticmethod
+        def RagResource(**kwargs):
+            return kwargs
+
+        @staticmethod
+        def RagRetrievalConfig(**kwargs):
+            return kwargs
+
+        def retrieval_query(self, **kwargs):
+            assert kwargs["rag_resources"] == [{"rag_corpus": "corpus"}]
+            return SimpleNamespace(
+                contexts=SimpleNamespace(
+                    contexts=[
+                        SimpleNamespace(
+                            text=f"{metadata}\n{chunk.text}",
+                            source_display_name="",
+                            score=0.9,
+                        )
+                    ]
+                )
+            )
+
+    store = object.__new__(RagEngineStore)
+    store._rag = FakeRag()
+    store._corpus_name = "corpus"
+    store._chunks = {}
+
+    results = await store.search([], "Firestore", top_k=3, entity="Brain", section="stack")
+
+    assert results == []

@@ -3,13 +3,23 @@ param(
   [string]$Region = "europe-west1",
   [string]$Service = "brain-rag-gemini",
   [string]$Repository = "brain-rag",
-  [Parameter(Mandatory = $true)][string]$VertexIndexName,
-  [Parameter(Mandatory = $true)][string]$VertexIndexEndpointName,
-  [Parameter(Mandatory = $true)][string]$VertexDeployedIndexId,
+  [ValidateSet("rag", "local", "vertex")][string]$VectorBackend = "rag",
+  [string]$RagCorpusName,
+  [string]$RagLocation = "us-central1",
+  [string]$VertexIndexName,
+  [string]$VertexIndexEndpointName,
+  [string]$VertexDeployedIndexId,
   [string]$VertexLocation = "us-central1"
 )
 
 $ErrorActionPreference = "Stop"
+$hasVertexConfig = $VertexIndexName -and $VertexIndexEndpointName -and $VertexDeployedIndexId
+if ($VectorBackend -eq "rag" -and -not $RagCorpusName) {
+  throw "RagCorpusName is required for the default rag backend. Create/approve a RAG corpus first."
+}
+if ($VectorBackend -eq "vertex" -and -not $hasVertexConfig) {
+  throw "Vertex backend requires explicit index, endpoint, and deployed index IDs. No endpoint is created by this script."
+}
 $runtimeSa = "brain-rag-runtime@$ProjectId.iam.gserviceaccount.com"
 $image = "$Region-docker.pkg.dev/$ProjectId/$Repository/$Service:manual"
 
@@ -39,4 +49,11 @@ $env:TASKTREE_DATABASE_URL | gcloud secrets versions add tasktree-database-url -
 gcloud secrets add-iam-policy-binding tasktree-database-url --member="serviceAccount:$runtimeSa" --role="roles/secretmanager.secretAccessor"
 
 gcloud builds submit --tag $image
-gcloud run deploy $Service --image $image --region $Region --service-account $runtimeSa --no-allow-unauthenticated --set-env-vars="GOOGLE_CLOUD_PROJECT=$ProjectId,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=True,VECTOR_STORE_BACKEND=vertex,VERTEX_INDEX_NAME=$VertexIndexName,VERTEX_INDEX_ENDPOINT_NAME=$VertexIndexEndpointName,VERTEX_DEPLOYED_INDEX_ID=$VertexDeployedIndexId,VERTEX_VECTOR_LOCATION=$VertexLocation" --set-secrets="TASKTREE_DATABASE_URL=tasktree-database-url:latest"
+$runtimeVars = "GOOGLE_CLOUD_PROJECT=$ProjectId,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=True,VECTOR_STORE_BACKEND=$VectorBackend"
+if ($VectorBackend -eq "rag") {
+  $runtimeVars += ",RAG_CORPUS_NAME=$RagCorpusName,RAG_LOCATION=$RagLocation"
+}
+if ($VectorBackend -eq "vertex") {
+  $runtimeVars += ",VERTEX_INDEX_NAME=$VertexIndexName,VERTEX_INDEX_ENDPOINT_NAME=$VertexIndexEndpointName,VERTEX_DEPLOYED_INDEX_ID=$VertexDeployedIndexId,VERTEX_VECTOR_LOCATION=$VertexLocation"
+}
+gcloud run deploy $Service --image $image --region $Region --service-account $runtimeSa --no-allow-unauthenticated --set-env-vars=$runtimeVars --set-secrets="TASKTREE_DATABASE_URL=tasktree-database-url:latest"
