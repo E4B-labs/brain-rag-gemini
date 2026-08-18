@@ -17,4 +17,3 @@ def test_chunk_facts_skips_aliases(facts) -> None:
     alias = facts[0].model_copy(update={"body": "Szukaj takze po: tasktree."})
     chunks = chunk_facts([facts[0], alias])
     assert {chunk.fact_id for chunk in chunks} == {"f-1"}
-

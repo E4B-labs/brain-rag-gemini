@@ -72,4 +72,3 @@ def facts() -> list[BrainFact]:
             section="stan",
         ),
     ]
-

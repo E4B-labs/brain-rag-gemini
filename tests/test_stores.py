@@ -19,9 +19,7 @@ async def test_in_memory_store_filters_entity_and_section(facts) -> None:
     chunks = chunk_facts(facts)
     store = InMemoryVectorStore()
     await store.upsert(chunks, [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-    results = await store.search(
-        [1, 0, 0], "anything", top_k=5, entity="Brain", section="stan"
-    )
+    results = await store.search([1, 0, 0], "anything", top_k=5, entity="Brain", section="stan")
     assert [item.chunk.fact_id for item in results] == ["f-3"]
 
 
@@ -32,4 +30,3 @@ async def test_sqlite_store_round_trip(tmp_path, facts) -> None:
     await store.upsert(chunks, [[1, 0, 0, 0]] * len(chunks))
     results = await store.search([1, 0, 0, 0], "Firestore", top_k=2)
     assert results[0].chunk.fact_id == "f-1"
-

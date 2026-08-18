@@ -3,8 +3,9 @@ import uuid
 
 from .chunking import chunk_facts
 from .config import Settings
+from .embeddings import EmbeddingResult
 from .guardrails import validate_grounding
-from .models import IngestResponse, QueryRequest, QueryResponse, SourceCitation
+from .models import FactChunk, IngestResponse, QueryRequest, QueryResponse, SourceCitation
 from .ports import BrainSource, Embedder, Generator, VectorStore
 from .retrieval import rerank
 
@@ -48,18 +49,7 @@ class RagService:
         if len(request.question) > self.settings.max_query_chars:
             raise ValueError("Question exceeds the configured character limit")
         started = time.perf_counter()
-        embedding = await self.embedder.embed([request.question], task_type="RETRIEVAL_QUERY")
-        candidates = await self.store.search(
-            embedding.vectors[0],
-            request.question,
-            top_k=min(50, request.top_k * 4),
-            entity=request.entity,
-            section=request.section,
-        )
-        ranked = rerank(
-            candidates, entity=request.entity, section=request.section, top_k=request.top_k
-        )
-        contexts = [item.chunk for item in ranked]
+        embedding, contexts = await self.retrieve(request)
         if not contexts:
             raise ValueError("No grounded facts found for this query")
         generation = await self.generator.generate(
@@ -91,3 +81,18 @@ class RagService:
             estimated_cost_usd=total_cost,
             request_id=str(uuid.uuid4()),
         )
+
+    async def retrieve(self, request: QueryRequest) -> tuple[EmbeddingResult, list[FactChunk]]:
+        embedding = await self.embedder.embed([request.question], task_type="RETRIEVAL_QUERY")
+        candidates = await self.store.search(
+            embedding.vectors[0],
+            request.question,
+            top_k=min(50, request.top_k * 4),
+            entity=request.entity,
+            section=request.section,
+        )
+        ranked = rerank(
+            candidates, entity=request.entity, section=request.section, top_k=request.top_k
+        )
+        contexts = [item.chunk for item in ranked]
+        return embedding, contexts

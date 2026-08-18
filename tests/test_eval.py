@@ -29,4 +29,3 @@ def test_recall_at_k() -> None:
 def test_faithfulness_requires_existing_citations() -> None:
     assert faithfulness("answer", ["a"], frozenset({"a"})) == 1.0
     assert faithfulness("answer", ["x"], frozenset({"a"})) == 0.0
-
