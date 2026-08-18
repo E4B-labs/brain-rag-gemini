@@ -121,6 +121,17 @@ starter runner for the local fixture; the production evaluation should run the
 retriever and ask `gemini-3.1-flash-lite` to judge faithfulness. The metric
 helpers are in `brain_rag.eval` and report recall@k and citation faithfulness.
 
+## Optional Google ADK tool
+
+The same retriever is exposed as a single ADK tool in `adk_agent/agent.py`:
+
+```powershell
+uv sync --extra adk
+adk web adk_agent
+```
+
+The ADK wrapper is optional; the FastAPI API and its tests do not import ADK.
+
 ## Security
 
 No service-account JSON, API key, Supabase password, or access token belongs in

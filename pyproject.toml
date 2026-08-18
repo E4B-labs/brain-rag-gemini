@@ -24,6 +24,9 @@ dev = [
   "ruff>=0.9,<1",
 ]
 
+[project.optional-dependencies]
+adk = ["google-adk[gcp]>=2.0.0,<3"]
+
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
