@@ -24,7 +24,7 @@ $runtimeSa = "brain-rag-runtime@$ProjectId.iam.gserviceaccount.com"
 $image = "$Region-docker.pkg.dev/$ProjectId/$Repository/$Service:manual"
 
 gcloud config set project $ProjectId
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com aiplatform.googleapis.com firestore.googleapis.com secretmanager.googleapis.com
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com aiplatform.googleapis.com vectorsearch.googleapis.com firestore.googleapis.com secretmanager.googleapis.com
 
 gcloud artifacts repositories describe $Repository --location=$Region 2>$null
 if ($LASTEXITCODE -ne 0) {

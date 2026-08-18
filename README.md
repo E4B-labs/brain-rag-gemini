@@ -112,6 +112,8 @@ uv run python scripts/create_rag_corpus.py `
   --project brain-rag-gemini `
   --location us-central1 `
   --display-name brain-rag-gemini
+# Created in this project:
+# projects/brain-rag-gemini/locations/us-central1/ragCorpora/8295393019104854016
 ```
 
 Example deployment command after the corpus exists:
