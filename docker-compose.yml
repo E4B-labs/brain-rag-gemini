@@ -3,13 +3,16 @@ services:
     build: .
     ports:
       - "8080:8080"
-    env_file:
-      - .env
     environment:
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
+      GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-True}
+      TASKTREE_DATABASE_URL: ${TASKTREE_DATABASE_URL:-}
+      BRAIN_WORKSPACE_ID: ${BRAIN_WORKSPACE_ID:-demo-workspace}
+      VECTOR_STORE_BACKEND: ${VECTOR_STORE_BACKEND:-local}
       SQLITE_PATH: /app/data/brain-rag.sqlite3
     volumes:
       - brain_rag_data:/app/data
 
 volumes:
   brain_rag_data:
-
